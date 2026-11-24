@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hitch-Mounted Tomato Scouting &amp; Spray Rig — 3D Simulation · Created by Dhruv Sood</title>
+<style>
+  :root { --cy:#38e1ff; --bg:#0a1220; --ink:#d7eefa; --dim:#7fa3b8; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); overflow:hidden; color:var(--ink);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  #app { position:fixed; inset:0; }
+  canvas { display:block; width:100%; height:100%; touch-action:none; }
+  #hud { position:fixed; inset:0; pointer-events:none; }
+  #leaders { position:absolute; inset:0; width:100%; height:100%; }
+  .corner { position:absolute; width:26px; height:26px; border:2px solid var(--cy); opacity:.7; }
+  .tl { top:12px; left:12px; border-right:0; border-bottom:0; }
+  .tr { top:12px; right:12px; border-left:0; border-bottom:0; }
+  .bl { bottom:12px; left:12px; border-right:0; border-top:0; }
+  .br { bottom:12px; right:12px; border-left:0; border-top:0; }
+  .panel { position:absolute; font-size:11px; line-height:1.55; letter-spacing:.04em; text-shadow:0 1px 3px #000; }
+  #title { top:26px; left:30px; max-width:min(440px,60vw); }
+  #title b { color:var(--cy); font-size:13px; letter-spacing:.12em; }
+  #title span { color:var(--dim); }
+  #stats { top:26px; right:30px; text-align:right; color:var(--dim); }
+  #credit { left:16px; bottom:70px; transform:rotate(180deg); writing-mode:vertical-rl;
+    padding:16px 9px; font-size:15px; letter-spacing:.3em; color:#fff; white-space:nowrap;
+    background:rgba(8,18,32,.82); border:1px solid var(--cy); border-right:4px solid var(--cy);
+    box-shadow:0 0 18px rgba(56,225,255,.35); text-shadow:none; }
+  #credit b { color:var(--cy); font-size:17px; letter-spacing:.32em; }
+  #credit2 { right:30px; bottom:18px; font-size:12px; color:var(--dim); text-align:right; }
+  #credit2 b { color:var(--ink); }
+  #stats i { color:var(--ink); font-style:normal; }
+  #pov { position:absolute; top:84px; left:50%; transform:translateX(-50%); display:none;
+    color:#ff6b6b; font-size:12px; letter-spacing:.2em; }
+  #pov::before { content:"● REC  "; animation:blink 1.2s infinite; }
+  @keyframes blink { 50% { opacity:.2; } }
+  .tag { position:absolute; left:0; top:0; white-space:nowrap; font-size:11px; line-height:1.35;
+    padding:3px 7px; background:rgba(8,18,32,.78); border:1px solid rgba(56,225,255,.55);
+    border-left:3px solid var(--cy); color:var(--ink); will-change:transform; }
+  .tag small { display:block; color:var(--dim); font-size:9.5px; letter-spacing:.03em; }
+  .tag.g { border-color:rgba(140,255,106,.6); border-left-color:#8cff6a; }
+  .tag.o { border-color:rgba(255,190,80,.6); border-left-color:#ffbe50; }
+  #bar { position:absolute; left:50%; bottom:22px; transform:translateX(-50%); display:flex; flex-wrap:wrap;
+    gap:6px; justify-content:center; max-width:96vw; pointer-events:auto; }
+  #bar button, #bar label { font:inherit; font-size:11px; letter-spacing:.06em; color:var(--ink);
+    background:rgba(8,18,32,.82); border:1px solid rgba(56,225,255,.45); padding:6px 10px; cursor:pointer;
+    user-select:none; }
+  #bar button:hover, #bar label:hover { background:rgba(56,225,255,.16); }
+  #bar button.on { background:rgba(56,225,255,.28); border-color:var(--cy); }
+  #bar input { accent-color:#38e1ff; margin-right:5px; vertical-align:-2px; }
+  #sep { width:10px; }
+  #fatal { position:fixed; inset:0; display:none; align-items:center; justify-content:center; text-align:center;
+    padding:30px; color:#ffb4b4; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="app"></div>
+<div id="hud">
+  <svg id="leaders"></svg>
+  <div id="labels"></div>
+  <div class="corner tl"></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div>
+  <div class="panel" id="title">
+    <b>AGRI-RIG // HITCH MODULE</b><br>
+    <span>digital-twin viewport · Indian compact utility tractor, rear 3-point hitch<br>
+    Pi 5 controller · 2× Pi Camera 3 · 2× peristaltic pump · micro-spray</span>
+  </div>
+  <div class="panel" id="stats"></div>
+  <div class="panel" id="credit">CREATED BY &nbsp;<b>DHRUV SOOD</b></div>
+  <div class="panel" id="credit2">© <b>Dhruv Sood</b> · Hitch-Rig 3D Simulation</div>
+  <div class="panel" id="pov"></div>
+  <div id="bar"></div>
+</div>
+<div id="fatal">WebGL could not start in this browser. Try a current Chrome, Edge, Firefox or Safari.</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* ------------------------------------------------------------------ setup */
+const root = document.getElementById('app');
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+} catch (e) {
+  document.getElementById('fatal').style.display = 'flex';
+  throw e;
+}
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.localClippingEnabled = true;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+root.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+{ // dusk-blue sky gradient
+  const c = document.createElement('canvas'); c.width = 4; c.height = 256;
+  const g = c.getContext('2d'); const gr = g.createLinearGradient(0, 0, 0, 256);
+  gr.addColorStop(0, '#0b1626'); gr.addColorStop(.55, '#1c3550'); gr.addColorStop(1, '#2d5169');
+  g.fillStyle = gr; g.fillRect(0, 0, 4, 256);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  scene.background = t;
+}
+scene.fog = new THREE.Fog(0x24415a, 9, 30);
+
+const camera = new THREE.PerspectiveCamera(42, 1, 0.04, 90);
+camera.position.set(1.4, 1.35, 4.1);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.7, 0.9);
+controls.enableDamping = true; controls.dampingFactor = 0.08;
+controls.minDistance = 0.3; controls.maxDistance = 12;
+controls.maxPolarAngle = Math.PI / 2 - 0.01;
+controls.autoRotateSpeed = 0.7;
+
+scene.add(new THREE.HemisphereLight(0xcfe3ff, 0x3a2f24, 0.95));
+const sun = new THREE.DirectionalLight(0xfff0d8, 2.3);
+sun.position.set(4, 8, 5);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -9, right: 9, top: 9, bottom: -9, near: 0.5, far: 26 });
+sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.02;
+scene.add(sun);
+const rim = new THREE.DirectionalLight(0x6cc8ff, 0.6); rim.position.set(-5, 3, -4); scene.add(rim);
+
+/* ---------------------------------------------------------------- helpers */
+const V = (x, y, z) => new THREE.Vector3(x, y, z);
+const M = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.55, metalness: 0.1, ...o });
+function mk(geo, mat, x = 0, y = 0, z = 0, o = {}) {
+  const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z);
+  m.castShadow = o.cast !== false; m.receiveShadow = o.recv !== false; return m;
+}
+const bx = (w, h, d, mat, x, y, z, o) => mk(new THREE.BoxGeometry(w, h, d), mat, x, y, z, o);
+function cy(r, h, mat, x, y, z, axis = 'y', seg = 24, o) {
+  const m = mk(new THREE.CylinderGeometry(r, r, h, seg), mat, x, y, z, o);
+  if (axis === 'x') m.rotation.z = Math.PI / 2;
+  if (axis === 'z') m.rotation.x = Math.PI / 2;
+  return m;
+}
+function link(a, b, r, mat, seg = 14) {
+  const A = V(...a), B = V(...b), len = A.distanceTo(B);
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, seg), mat);
+  m.position.copy(A).add(B).multiplyScalar(0.5);
+  m.quaternion.setFromUnitVectors(V(0, 1, 0), B.clone().sub(A).normalize());
+  m.castShadow = true; return m;
+}
+function tube(pts, r, mat) {
+  const curve = new THREE.CatmullRomCurve3(pts.map(p => V(...p)));
+  const m = new THREE.Mesh(new THREE.TubeGeometry(curve, Math.max(24, pts.length * 10), r, 8, false), mat);
+  m.castShadow = true; return { mesh: m, curve };
+}
+/* flat FFC ribbon swept along a curve; refs = per-point "width direction" so the ribbon can twist */
+const ffcM = new THREE.MeshStandardMaterial({ color: 0xd98a2e, roughness: 0.5, metalness: 0.05, side: THREE.DoubleSide });
+function ribbon(pts, refs, width, mat = ffcM) {
+  const curve = new THREE.CatmullRomCurve3(pts.map(p => V(...p)));
+  const n = pts.length * 14, pos = [], idx = [];
+  for (let i = 0; i <= n; i++) {
+    const u = i / n, p = curve.getPoint(u), Tn = curve.getTangent(u);
+    const f = u * (refs.length - 1), a = Math.floor(f), b = Math.min(a + 1, refs.length - 1);
+    const ref = V(...refs[a]).lerp(V(...refs[b]), f - a);
+    const wv = ref.sub(Tn.clone().multiplyScalar(ref.dot(Tn)));
+    if (wv.lengthSq() < 1e-8) wv.set(0, 0, 1);
+    wv.normalize().multiplyScalar(width / 2);
+    pos.push(p.x - wv.x, p.y - wv.y, p.z - wv.z, p.x + wv.x, p.y + wv.y, p.z + wv.z);
+  }
+  for (let i = 0; i < n; i++) { const a = 2 * i; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+  const m = new THREE.Mesh(g, mat); m.castShadow = false; m.receiveShadow = true; return m;
+}
+const dropSprite = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d');
+  const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.45, 'rgba(255,255,255,.55)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c);
+})();
+function rng(seed) { // mulberry32
+  let a = seed >>> 0;
+  return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+
+/* ----------------------------------------------------------------- ground */
+{
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d'); g.fillStyle = '#4a3828'; g.fillRect(0, 0, 256, 256);
+  const r = rng(7);
+  for (let i = 0; i < 5000; i++) {
+    const v = 50 + r() * 45; g.fillStyle = `rgb(${v + 22},${v + 8},${v - 8})`;
+    g.fillRect(r() * 256, r() * 256, 1 + r() * 2.5, 1 + r() * 2.5);
+  }
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(24, 24);
+  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), M(0xffffff, { map: t, roughness: 1, metalness: 0 }));
+  ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+  const grid = new THREE.GridHelper(40, 40, 0x38e1ff, 0x38e1ff);
+  grid.material.transparent = true; grid.material.opacity = 0.16; grid.material.depthWrite = false;
+  grid.position.y = 0.006; scene.add(grid);
+}
+
+/* ---------------------------------------------------------------- tractor */
+// Generic Indian compact utility tractor (45 HP class): tall narrow body, big deep-lug rear tyres, round fenders
+// with tail/indicator lamps, flat footboard + spring seat, rockshaft with lift rods, drawbar, PTO. No brand marks.
+const tractor = new THREE.Group(); scene.add(tractor);
+const CUT_Y = 1.9;
+const clip = [new THREE.Plane(new THREE.Vector3(0, -1, 0), CUT_Y)];
+const T = (c, o = {}) => M(c, { clippingPlanes: clip, clipShadows: true, side: THREE.DoubleSide, ...o });
+const red = T(0xc5231a, { roughness: 0.38, metalness: 0.3 });
+const redD = T(0x9e1a12, { roughness: 0.45, metalness: 0.3 });
+const tireMat = T(0x141517, { roughness: 0.95, metalness: 0 });
+const greyT = T(0x8b929b, { roughness: 0.35, metalness: 0.75 });
+const darkT = T(0x23262b, { roughness: 0.6, metalness: 0.4 });
+const castT = T(0x3a3d42, { roughness: 0.7, metalness: 0.5 });
+const chromeT = T(0xe6e9ee, { roughness: 0.12, metalness: 1 });
+const seatM = T(0x15161a, { roughness: 0.9, metalness: 0 });
+const redLamp = M(0xff2a1a, { emissive: 0xff1a0a, emissiveIntensity: 0.9 });
+const ambLamp = M(0xffa21f, { emissive: 0xff8a00, emissiveIntensity: 0.9 });
+const whiteLamp = M(0xfff6dc, { emissive: 0xfff0c0, emissiveIntensity: 0.8 });
+
+function makeWheel({ r, w, x, y, z, n, lug, rimR, hubR }) {
+  const g = new THREE.Group(); g.position.set(x, y, z);
+  const s = Math.sign(x) || 1;
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(r, r, w, 56, 1, true), tireMat);
+  barrel.rotation.z = Math.PI / 2; g.add(barrel);
+  for (const q of [-1, 1]) {
+    const wall = new THREE.Mesh(new THREE.RingGeometry(rimR * 0.96, r, 56), tireMat);
+    wall.rotation.y = Math.PI / 2; wall.position.x = q * w / 2; g.add(wall);
+    g.add(cy(rimR, 0.05, redD, q * (w / 2 - 0.07), 0, 0, 'x', 40));                // rim dish
+  }
+  const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(lug[0], lug[1], lug[2]), tireMat, n * 2);
+  const d = new THREE.Object3D(); let k = 0;
+  for (let i = 0; i < n; i++) for (const q of [-1, 1]) {
+    const a = (i / n) * Math.PI * 2 + (q > 0 ? 0 : Math.PI / n), rr = r + lug[1] * 0.3;
+    d.position.set(q * lug[0] * 0.5, Math.sin(a) * rr, Math.cos(a) * rr);
+    d.rotation.set(Math.PI / 2 - a, q * 0.6, 0, 'XYZ'); d.updateMatrix(); inst.setMatrixAt(k++, d.matrix);
+  }
+  inst.castShadow = true; inst.receiveShadow = true; g.add(inst);
+  g.add(cy(hubR, w * 1.15, greyT, s * w * 0.02, 0, 0, 'x', 20));                   // hub
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    g.add(cy(rimR * 0.05, 0.05, chromeT, s * (w / 2 - 0.02), Math.sin(a) * rimR * 0.55, Math.cos(a) * rimR * 0.55, 'x', 8));
+  }
+  return g;
+}
+for (const s of [-1, 1]) {
+  tractor.add(makeWheel({ r: 0.78, w: 0.4, x: s * 1.08, y: 0.78, z: 0, n: 22, lug: [0.2, 0.09, 0.09], rimR: 0.5, hubR: 0.14 }));
+  tractor.add(makeWheel({ r: 0.45, w: 0.2, x: s * 0.78, y: 0.45, z: -2.1, n: 18, lug: [0.1, 0.05, 0.05], rimR: 0.27, hubR: 0.08 }));
+  const fender = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 0.95, 0.58, 56, 1, true, 0.1 * Math.PI, 0.8 * Math.PI), red);
+  fender.rotation.z = Math.PI / 2; fender.position.set(s * 1.08, 0.78, 0); tractor.add(fender);
+  tractor.add(bx(0.12, 0.07, 0.04, s > 0 ? ambLamp : redLamp, s * 0.96, 1.08, 0.93));          // tail / indicator lamps
+  tractor.add(bx(0.12, 0.07, 0.04, s > 0 ? redLamp : ambLamp, s * 1.2, 1.08, 0.93));
+  tractor.add(cy(0.16, 0.3, castT, s * 0.62, 0.78, 0, 'x', 20));                                   // axle bell housing
+  tractor.add(bx(0.07, 1.0, 0.07, darkT, s * 0.52, 1.6, 0.25));                                    // ROPS posts (cut)
+  tractor.add(bx(0.07, 0.07, 0.07, darkT, s * 0.35, 0.5, 0.35));
+  tractor.add(link([s * 0.35, 0.5, 0.35], [s * 0.35, 0.55, 0.985], 0.024, greyT));                 // lower lift links
+  tractor.add(link([s * 0.56, 1.12, 0.3], [s * 0.35, 0.515, 0.5], 0.017, greyT));                  // lift rods
+  tractor.add(cy(0.026, 0.1, chromeT, s * 0.47, 0.84, 0.38, 'y', 12));                             // turnbuckle
+  tractor.add(cy(0.06, 0.05, whiteLamp, s * 0.22, 1.25, -1.86, 'z', 20));                          // headlamps
+}
+tractor.add(cy(0.1, 2.16, castT, 0, 0.78, 0, 'x', 20));                                            // rear axle
+tractor.add(bx(0.62, 0.62, 1.0, castT, 0, 0.75, -0.2));                                            // transmission housing
+tractor.add(cy(0.26, 0.46, red, 0, 0.88, 0.3, 'z', 28));                                           // rear cover
+for (let i = 0; i < 4; i++) tractor.add(bx(0.4, 0.03, 0.006, i % 2 ? M(0xf4f4f4, { roughness: 0.3 }) : redLamp, 0, 0.74 + i * 0.07, 0.536, { cast: false })); // reflective tape
+tractor.add(cy(0.035, 1.2, greyT, 0, 1.12, 0.3, 'x', 14));                                         // rockshaft
+tractor.add(bx(1.62, 0.04, 0.65, darkT, 0, 1.1, -0.28));                                           // footboard
+tractor.add(cy(0.04, 0.26, darkT, 0, 1.24, 0.14, 'y', 12));                                        // seat pedestal
+tractor.add(bx(0.42, 0.07, 0.38, seatM, 0, 1.4, 0.14));                                            // seat pan
+{ const back = bx(0.42, 0.34, 0.07, seatM, 0, 1.6, 0.31); back.rotation.x = -0.18; tractor.add(back); }
+tractor.add(link([0, 1.1, -0.5], [0, 1.55, -0.62], 0.025, darkT));                                 // steering column
+{ const sw = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.018, 10, 36), darkT); sw.position.set(0, 1.6, -0.64); sw.rotation.x = Math.PI / 2 - 0.65; tractor.add(sw); }
+tractor.add(bx(0.32, 0.14, 0.12, darkT, 0, 1.6, -0.85));                                           // dash
+tractor.add(bx(0.6, 0.5, 1.0, castT, 0, 0.78, -1.2));                                              // engine block
+tractor.add(bx(0.66, 0.58, 1.05, red, 0, 1.3, -1.3));                                              // bonnet
+tractor.add(bx(0.5, 0.45, 0.05, darkT, 0, 1.25, -1.84));                                           // grille
+tractor.add(bx(0.7, 0.12, 0.12, darkT, 0, 0.62, -1.95));                                           // front bumper
+tractor.add(bx(1.1, 0.1, 0.14, castT, 0, 0.45, -2.1));                                             // front axle
+tractor.add(cy(0.035, 0.9, chromeT, 0.22, 2.0, -1.35, 'y', 14));                                   // exhaust stack (cut)
+tractor.add(link([0, 1.12, 0.42], [0, 0.915, 0.955], 0.02, greyT));                                // top link
+tractor.add(bx(0.14, 0.035, 0.5, greyT, 0, 0.4, 0.72));                                            // drawbar
+tractor.add(cy(0.03, 0.22, chromeT, 0, 0.56, 0.62, 'z', 16));                                      // PTO shaft
+tractor.add(cy(0.05, 0.1, darkT, 0, 0.56, 0.54, 'z', 16));                                         // PTO guard
+tractor.traverse(o => { if (o.isMesh && !o.userData.noShadow) { o.castShadow = true; o.receiveShadow = true; } });
+{ // translucent "cut-away" section plane
+  const sec = new THREE.Group(); sec.position.set(0, CUT_Y + 0.002, -0.9);
+  const pl = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 4.0),
+    new THREE.MeshBasicMaterial({ color: 0x38e1ff, transparent: true, opacity: 0.05, side: THREE.DoubleSide, depthWrite: false }));
+  pl.rotation.x = -Math.PI / 2; sec.add(pl);
+  const ed = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(3.2, 4.0)),
+    new THREE.LineBasicMaterial({ color: 0x38e1ff, transparent: true, opacity: 0.6 }));
+  ed.rotation.x = -Math.PI / 2; sec.add(ed); scene.add(sec);
+}
+
+/* ------------------------------------------------------------------ crops */
+const soil = M(0x58402b, { roughness: 1, metalness: 0 });
+const mulch = M(0x121316, { roughness: 0.35, metalness: 0.1 });
+const greens = [M(0x2f7d32, { roughness: 0.8, metalness: 0 }), M(0x3f9a3a, { roughness: 0.8, metalness: 0 }), M(0x276a2b, { roughness: 0.8, metalness: 0 })];
+const fruitM = [M(0xd8261c, { roughness: 0.25 }), M(0xd8261c, { roughness: 0.25 }), M(0xf08a24, { roughness: 0.3 }), M(0x7cb342, { roughness: 0.35 })];
+const stemM = M(0x5c7a2f), stakeM = M(0xb8864b, { roughness: 0.9, metalness: 0 });
+const icoG = new THREE.IcosahedronGeometry(1, 1), sphG = new THREE.SphereGeometry(1, 14, 10);
+
+function makePlant(seed, shadow) {
+  const r = rng(seed), g = new THREE.Group();
+  g.add(cy(0.014, 1.0, stemM, 0, 0.5, 0, 'y', 8, { cast: shadow }));
+  g.add(bx(0.022, 1.3, 0.022, stakeM, 0.1, 0.65, 0.06, { cast: shadow }));
+  for (let i = 0; i < 13; i++) {
+    const rad = 0.1 + r() * 0.1, m = mk(icoG, greens[i % 3], 0, 0, 0, { cast: shadow });
+    m.scale.set(rad, rad * 0.75, rad);
+    const a = r() * Math.PI * 2, rr = Math.sqrt(r()) * 0.24;
+    m.position.set(Math.cos(a) * rr, 0.28 + r() * 0.8, Math.sin(a) * rr);
+    m.rotation.set(r() * 3, r() * 3, r() * 3); g.add(m);
+  }
+  for (let i = 0; i < 7; i++) {
+    const rad = 0.034 + r() * 0.014, m = mk(sphG, fruitM[Math.floor(r() * fruitM.length)], 0, 0, 0, { cast: shadow });
+    m.scale.setScalar(rad);
+    const a = r() * Math.PI * 2, rr = 0.2 + r() * 0.1;
+    m.position.set(Math.cos(a) * rr, 0.3 + r() * 0.5, Math.sin(a) * rr); g.add(m);
+  }
+  return g;
+}
+const crops = new THREE.Group(); scene.add(crops);
+let seed = 11;
+for (const sx of [-1, 1]) {
+  crops.add(bx(0.8, 0.14, 17, soil, sx * 2.5, 0.07, -1.5));
+  crops.add(bx(0.7, 0.006, 17, mulch, sx * 2.5, 0.143, -1.5, { cast: false }));
+  for (let z = -9; z <= 6; z++) { const p = makePlant(seed++, true); p.position.set(sx * 2.5, 0.145, z); crops.add(p); }
+  crops.add(bx(0.8, 0.14, 12, soil, sx * 5, 0.07, -3, { cast: false }));
+  crops.add(bx(0.7, 0.006, 12, mulch, sx * 5, 0.143, -3, { cast: false }));
+  for (let z = -8; z <= 3; z++) { const p = makePlant(seed++, false); p.position.set(sx * 5, 0.145, z); crops.add(p); }
+}
+
+/* -------------------------------------------------------------------- rig */
+const rig = new THREE.Group(); scene.add(rig);
+const steel = M(0x9aa3ad, { metalness: 0.85, roughness: 0.3 });
+const anod = M(0x2a2f36, { metalness: 0.6, roughness: 0.4 });
+const alum = M(0xc3c9d0, { metalness: 0.9, roughness: 0.25 });
+const abs = M(0xdfe3e8, { roughness: 0.45, metalness: 0.05 });
+const blackP = M(0x0d0e10, { roughness: 0.5 });
+const cableM = M(0x1a1b1e, { roughness: 0.6 });
+const BAR_Y = 0.55, BAR_Z = 1.0;
+
+rig.add(bx(2.2, 0.08, 0.08, steel, 0, BAR_Y, BAR_Z));
+for (const s of [-1, 1]) {
+  rig.add(bx(0.03, 0.1, 0.1, anod, s * 1.1, BAR_Y, BAR_Z));
+  rig.add(bx(0.1, 0.2, 0.03, anod, s * 0.35, BAR_Y, BAR_Z - 0.04));   // lift-link brackets
+  rig.add(bx(0.03, 0.12, 0.03, anod, s * 0.1, 0.63, BAR_Z - 0.01));   // enclosure posts
+}
+
+/* enclosure with Pi 5 */
+function piTexture() {
+  const c = document.createElement('canvas'); c.width = 1360; c.height = 896;
+  const g = c.getContext('2d');
+  g.fillStyle = '#f3f3ee'; g.textBaseline = 'middle';
+  g.font = 'bold 76px Arial, sans-serif'; g.fillText('Raspberry Pi 5', 520, 700);
+  g.font = '34px monospace'; g.fillText('© 2023 Raspberry Pi Ltd', 520, 772);
+  g.font = '28px monospace'; g.fillText('Made in the UK', 520, 818);
+  g.strokeStyle = '#f3f3ee'; g.lineWidth = 5;
+  for (const [x, y] of [[70, 70], [1290, 70], [70, 826], [1290, 826]]) { g.beginPath(); g.arc(x, y, 32, 0, 7); g.stroke(); }
+  g.fillRect(250, 340, 120, 4); g.fillRect(800, 440, 300, 4); g.font = '26px monospace'; g.fillText('PWR', 120, 540);
+  // raspberry logo
+  const x = 340, y = 700, s = 120;
+  g.fillStyle = '#4caf50';
+  for (const a of [-0.95, -0.32, 0.32, 0.95]) {
+    g.save(); g.translate(x, y - s * 0.78); g.rotate(a); g.beginPath();
+    g.ellipse(0, -s * 0.3, s * 0.15, s * 0.4, 0, 0, Math.PI * 2); g.fill(); g.restore();
+  }
+  g.fillStyle = '#d6254a';
+  for (const [bx_, by_] of [[-0.24, -0.5], [0.24, -0.5], [-0.5, -0.12], [0, -0.12], [0.5, -0.12], [-0.26, 0.26], [0.26, 0.26], [0, 0.62]]) {
+    g.beginPath(); g.arc(x + bx_ * s, y + by_ * s * 0.95, s * 0.26, 0, 7); g.fill();
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t;
+}
+const enc = new THREE.Group(); enc.position.set(0, 0.8, 1.02); rig.add(enc);
+const W = 0.34, H = 0.22, D = 0.13, tk = 0.008;
+enc.add(bx(W, H, tk, abs, 0, 0, -D / 2 + tk / 2));
+enc.add(bx(W, tk, D, abs, 0, H / 2 - tk / 2, 0));
+enc.add(bx(W, tk, D, abs, 0, -H / 2 + tk / 2, 0));
+enc.add(bx(tk, H, D, abs, -W / 2 + tk / 2, 0, 0));
+enc.add(bx(tk, H, D, abs, W / 2 - tk / 2, 0, 0));
+enc.add(bx(W + 0.006, 0.012, 0.012, blackP, 0, H / 2 - 0.004, D / 2));      // gasket frame
+enc.add(bx(W + 0.006, 0.012, 0.012, blackP, 0, -H / 2 + 0.004, D / 2));
+enc.add(bx(0.012, H, 0.012, blackP, -W / 2 + 0.004, 0, D / 2));
+enc.add(bx(0.012, H, 0.012, blackP, W / 2 - 0.004, 0, D / 2));
+const glass = new THREE.Mesh(new THREE.BoxGeometry(W - 0.01, H - 0.01, 0.004),
+  new THREE.MeshPhysicalMaterial({ color: 0xbfe9ff, transparent: true, opacity: 0.15, roughness: 0.04, metalness: 0,
+    clearcoat: 1, side: THREE.DoubleSide, depthWrite: false }));
+glass.position.z = D / 2 + 0.002; glass.renderOrder = 5; enc.add(glass);
+for (const sx of [-1, 1]) for (const sy of [-1, 1])
+  enc.add(cy(0.0065, 0.008, alum, sx * (W / 2 - 0.012), sy * (H / 2 - 0.012), D / 2 + 0.01, 'z', 10));
+
+const pcb = M(0x1b7d3c, { roughness: 0.5, metalness: 0.15 });
+const silver = M(0xcfd4da, { metalness: 0.9, roughness: 0.25 });
+const bz = -0.03, top = bz + 0.00175;
+const pi = new THREE.Group(); pi.position.set(-0.02, -0.005, 0); enc.add(pi);
+for (const sx of [-1, 1]) for (const sy of [-1, 1])
+  pi.add(cy(0.004, 0.032, M(0xc9a24a, { metalness: 0.8, roughness: 0.35 }), sx * 0.0765, sy * 0.049, -0.044, 'z', 8));
+pi.add(bx(0.17, 0.112, 0.0035, pcb, 0, 0, bz));
+const logo = new THREE.Mesh(new THREE.PlaneGeometry(0.17, 0.112),
+  new THREE.MeshBasicMaterial({ map: piTexture(), transparent: true, depthWrite: false }));
+logo.position.z = top + 0.0003; pi.add(logo);
+pi.add(bx(0.03, 0.03, 0.0055, silver, -0.03, 0.002, top + 0.0028));           // SoC heat-spreader
+pi.add(bx(0.018, 0.018, 0.002, blackP, 0.004, 0.002, top + 0.001));           // LPDDR4X
+pi.add(bx(0.022, 0.022, 0.0025, blackP, 0.03, 0.02, top + 0.0013));           // RP1
+pi.add(bx(0.012, 0.012, 0.002, blackP, 0.034, -0.02, top + 0.001));           // PMIC
+pi.add(bx(0.1, 0.008, 0.009, blackP, 0, 0.05, top + 0.0045));                 // GPIO shroud
+{
+  const pins = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.0009, 0.0009, 0.0125, 6),
+    M(0xd9b44a, { metalness: 0.9, roughness: 0.25 }), 40);
+  const d = new THREE.Object3D(); let k = 0;
+  for (let i = 0; i < 20; i++) for (const row of [-1, 1]) {
+    d.position.set(-0.0483 + i * 0.00508, 0.05 + row * 0.0021, top + 0.006); d.rotation.x = Math.PI / 2; d.updateMatrix();
+    pins.setMatrixAt(k++, d.matrix);
+  }
+  pi.add(pins);
+}
+pi.add(bx(0.04, 0.032, 0.026, silver, 0.072, -0.03, top + 0.013));            // Ethernet
+pi.add(bx(0.032, 0.028, 0.016, M(0x2a6bd6, { roughness: 0.4 }), 0.074, 0.0, top + 0.008)); // USB3 stack
+pi.add(bx(0.032, 0.028, 0.016, silver, 0.074, 0.03, top + 0.008));            // USB2 stack
+pi.add(bx(0.016, 0.012, 0.005, silver, -0.04, -0.054, top + 0.0028));         // USB-C
+pi.add(bx(0.012, 0.008, 0.004, silver, -0.015, -0.055, top + 0.002));         // micro-HDMI
+pi.add(bx(0.012, 0.008, 0.004, silver, 0.008, -0.055, top + 0.002));
+const stiffM = M(0x2a5ba8, { roughness: 0.5 });
+for (const cx of [0.035, 0.062]) {                                            // two 22-pin CSI/DSI FFC connectors
+  pi.add(bx(0.026, 0.009, 0.004, blackP, cx, -0.048, top + 0.002));
+  pi.add(bx(0.024, 0.0025, 0.0015, M(0xe8e4d8, { roughness: 0.6 }), cx, -0.0525, top + 0.0045));   // latch
+  const tab = bx(0.021, 0.014, 0.0012, stiffM, cx, -0.067, top + 0.0042, { cast: false }); pi.add(tab); // cable stiffener
+}
+const ledG = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.003, 0.002), new THREE.MeshStandardMaterial({ color: 0x00ff66, emissive: 0x00ff66, emissiveIntensity: 2 }));
+ledG.position.set(-0.07, -0.05, top + 0.001); pi.add(ledG);
+const ledR = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.003, 0.002), new THREE.MeshStandardMaterial({ color: 0xff2020, emissive: 0xff2020, emissiveIntensity: 2 }));
+ledR.position.set(-0.062, -0.05, top + 0.001); pi.add(ledR);
+enc.add(cy(0.006, 0.1, blackP, 0.12, H / 2 + 0.05, -0.02, 'y', 10));           // antenna
+for (const gx of [-0.09, 0.09]) enc.add(cy(0.012, 0.03, blackP, gx, -H / 2 - 0.012, 0, 'y', 14)); // cable glands
+
+/* reservoir + hoses (static) */
+const hoseM = new THREE.MeshPhysicalMaterial({ color: 0x4aa3ff, transparent: true, opacity: 0.65, roughness: 0.2 });
+rig.add(cy(0.062, 0.24, new THREE.MeshPhysicalMaterial({ color: 0x9fd4ff, transparent: true, opacity: 0.3, roughness: 0.1 }), 0, 0.4, 1.075, 'x', 28));
+rig.add(cy(0.054, 0.2, M(0x38bdf8, { transparent: true, opacity: 0.85, roughness: 0.2 }), 0, 0.385, 1.075, 'x', 24, { cast: false }));
+rig.add(cy(0.066, 0.02, anod, -0.125, 0.4, 1.075, 'x', 24)); rig.add(cy(0.066, 0.02, anod, 0.125, 0.4, 1.075, 'x', 24));
+for (const s of [-1, 1]) {
+  rig.add(bx(0.02, 0.1, 0.03, anod, s * 0.06, 0.46, 1.05));
+  const hose = tube([[s * 0.135, 0.4, 1.075], [s * 0.3, 0.41, 1.105], [s * 0.6, 0.455, 1.12], [s * 0.78, 0.505, 1.09]], 0.0045, hoseM);
+  rig.add(hose.mesh);
+  { // 22-pin FFC from the Pi 5 connector, out through the cable gland, along the bar to the arm base
+    const cx = s > 0 ? 0.042 : 0.015, gx = s * 0.09, E = (x, y, z) => [x, 0.8 + y, 1.02 + z];
+    rig.add(ribbon([E(cx, -0.058, -0.0247), E(cx, -0.085, -0.0247), E(cx + (gx - cx) * 0.55, -0.1, -0.01), E(gx, -0.115, 0), E(gx, -0.165, 0),
+      [s * 0.115, 0.617, 1.015], [s * 0.3, 0.612, 1.005], [s * 0.5, 0.63, 1.0], [s * 0.62, 0.66, 1.0]],
+      [[1, 0, 0], [1, 0, 0], [1, 0, 0], [1, 0, 0], [1, 0, 0], [0.4, 0.6, 0], [0, 1, 0], [0, 1, 0], [0, 1, 0]], 0.026));
+  }
+  rig.add(tube([[s * 0.09, 0.64, 1.02], [s * 0.12, 0.605, 1.065], [s * 0.4, 0.57, 1.115], [s * 0.74, 0.55, 1.1]], 0.0035, M(0xb3261e)).mesh);   // pump power
+}
+
+/* arms (built once, mirrored for the left side) */
+const pumps = [], sprays = [], pulses = [], sways = [], hudObjs = [], scanQuads = [];
+const camGlass = M(0x0a1020, { metalness: 0.9, roughness: 0.08 });
+const pcbCam = M(0x1f6f3a, { roughness: 0.5 });
+function makePiCamera() {
+  const g = new THREE.Group();
+  g.add(bx(0.06, 0.06, 0.004, pcbCam, 0, 0, 0));
+  g.add(bx(0.03, 0.03, 0.009, blackP, 0, 0, 0.0065));
+  g.add(cy(0.0145, 0.003, M(0x3a3f46, { metalness: 0.8, roughness: 0.3 }), 0, 0, 0.0105, 'z', 24));
+  g.add(cy(0.0125, 0.014, blackP, 0, 0, 0.0155, 'z', 24));
+  g.add(cy(0.0085, 0.0012, camGlass, 0, 0, 0.0232, 'z', 24));
+  g.add(bx(0.018, 0.006, 0.003, M(0xd9b44a, { metalness: 0.8 }), 0, -0.027, 0.0035));
+  for (const [x, y] of [[-0.022, 0.02], [0.022, 0.02], [0.02, -0.018]]) g.add(bx(0.005, 0.003, 0.002, M(0x6b5a3a), x, y, 0.003));
+  return g;
+}
+function buildArm() {
+  const inner = new THREE.Group(), S = V(0.62, 0.6, 1.0);
+  inner.add(bx(0.1, 0.11, 0.11, anod, 0.62, BAR_Y, BAR_Z));                       // clamp on the bar
+  inner.add(cy(0.032, 0.06, anod, S.x, S.y, S.z, 'z', 20));                        // shoulder servo
+  inner.add(link([0.62, 0.6, 1.0], [1.12, 0.72, 1.0], 0.019, alum));               // link 1
+  inner.add(cy(0.028, 0.055, anod, 1.12, 0.72, 1.0, 'z', 20));                     // elbow servo
+  inner.add(link([1.12, 0.72, 1.0], [1.565, 0.665, 1.0], 0.014, alum));            // link 2
+  inner.add(bx(0.03, 0.045, 0.045, anod, 1.565, 0.665, 1.0));                      // wrist
+  inner.add(bx(0.006, 0.07, 0.07, anod, 1.588, 0.665, 1.0));                       // camera plate
+  const cam = makePiCamera(); cam.position.set(1.6, 0.665, 1.0); cam.rotation.y = Math.PI / 2; inner.add(cam);
+  inner.add(link([1.58, 0.63, 1.0], [1.58, 0.605, 1.0], 0.006, alum));             // nozzle post
+  const noz = new THREE.Group(); noz.position.set(1.585, 0.592, 1.0); noz.rotation.z = -Math.PI / 2 - 0.12;
+  noz.add(mk(new THREE.CylinderGeometry(0.0035, 0.0085, 0.032, 14), M(0xe0b04a, { metalness: 0.8, roughness: 0.3 }), 0, 0.016, 0));
+  inner.add(noz);
+  inner.add(ribbon([[0.62, 0.66, 1.0], [0.85, 0.68, 1.0], [1.12, 0.775, 1.0], [1.3, 0.745, 1.0], [1.5, 0.725, 1.0], [1.586, 0.722, 1.0], [1.596, 0.698, 1.0]],
+    [[0, 1, 0], [0, 1, 0], [0, 1, 0], [0, 1, 0], [0, 1, 0], [0, 0, 1], [0, 0, 1]], 0.026));   // FFC along the arm into the camera
+
+  /* peristaltic pump on the arm base */
+  const px = 0.78;
+  inner.add(bx(0.075, 0.075, 0.05, anod, px, BAR_Y, 1.065));
+  inner.add(cy(0.038, 0.012, alum, px, BAR_Y, 1.096, 'z', 28));
+  const rotor = new THREE.Group(); rotor.position.set(px, BAR_Y, 1.108);
+  rotor.add(cy(0.012, 0.012, steel, 0, 0, 0, 'z', 16));
+  for (let i = 0; i < 3; i++) { const a = i * Math.PI * 2 / 3; rotor.add(cy(0.0065, 0.014, M(0xff7a1a, { roughness: 0.4 }), Math.cos(a) * 0.02, Math.sin(a) * 0.02, 0, 'z', 12)); }
+  inner.add(rotor); pumps.push(rotor);
+  const arc = new THREE.Mesh(new THREE.TorusGeometry(0.026, 0.0045, 8, 28, Math.PI * 1.5),
+    new THREE.MeshPhysicalMaterial({ color: 0x9fe8ff, transparent: true, opacity: 0.8, roughness: 0.15 }));
+  arc.position.set(px, BAR_Y, 1.108); arc.rotation.z = Math.PI * 0.25; inner.add(arc);
+  inner.add(cy(0.04, 0.008, new THREE.MeshPhysicalMaterial({ color: 0xcfefff, transparent: true, opacity: 0.22, roughness: 0.05 }), px, BAR_Y, 1.122, 'z', 28, { cast: false }));
+  inner.add(cy(0.0055, 0.016, anod, px, BAR_Y + 0.045, 1.085, 'y', 10));            // outlet barb
+
+  /* fluid line to nozzle */
+  const fl = tube([[px, 0.61, 1.085], [0.86, 0.645, 1.07], [1.0, 0.7, 1.05], [1.12, 0.79, 1.045], [1.3, 0.765, 1.045],
+    [1.48, 0.69, 1.035], [1.565, 0.625, 1.015], [1.583, 0.594, 1.0]], 0.0038,
+    new THREE.MeshPhysicalMaterial({ color: 0x7fe8ff, transparent: true, opacity: 0.7, roughness: 0.15, emissive: 0x0b6f8f, emissiveIntensity: 0.5 }));
+  inner.add(fl.mesh);
+  for (let i = 0; i < 7; i++) {
+    const p = new THREE.Mesh(new THREE.SphereGeometry(0.0058, 8, 6), new THREE.MeshBasicMaterial({ color: 0xaaf4ff }));
+    inner.add(p); pulses.push({ mesh: p, curve: fl.curve, off: i / 7 });
+  }
+
+  /* spray particles */
+  const N = 170, pos = new Float32Array(N * 3), vel = new Float32Array(N * 3), age = new Float32Array(N), life = new Float32Array(N);
+  const origin = V(1.62, 0.585, 1.0), base = -0.12;
+  const respawn = (i, init) => {
+    const a = (Math.random() - 0.5) * 0.45, b = (Math.random() - 0.5) * 0.45, sp = 1.5 + Math.random() * 0.5;
+    const dir = V(Math.cos(base + a), Math.sin(base + a), Math.sin(b)).normalize();
+    vel[i * 3] = dir.x * sp; vel[i * 3 + 1] = dir.y * sp; vel[i * 3 + 2] = dir.z * sp;
+    life[i] = 0.35 + Math.random() * 0.25; age[i] = init ? Math.random() * life[i] : 0;
+    pos[i * 3] = origin.x + vel[i * 3] * age[i]; pos[i * 3 + 1] = origin.y + vel[i * 3 + 1] * age[i]; pos[i * 3 + 2] = origin.z + vel[i * 3 + 2] * age[i];
+  };
+  for (let i = 0; i < N; i++) respawn(i, true);
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const pts = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0xcdefff, map: dropSprite, alphaTest: 0.01, size: 0.022, transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending }));
+  pts.frustumCulled = false; inner.add(pts);
+  sprays.push({ geo, pos, vel, age, life, N, respawn, parked: false });
+
+  /* camera frustum + bounding box (HUD) */
+  const A = V(1.632, 0.665, 1.0), X = A.x + 0.7, hw = 0.455, hh = 0.26;
+  const c = [V(X, 0.665 + hh, 1 - hw), V(X, 0.665 + hh, 1 + hw), V(X, 0.665 - hh, 1 + hw), V(X, 0.665 - hh, 1 - hw)];
+  const lp = []; c.forEach((p, i) => { lp.push(A, p, p, c[(i + 1) % 4]); });
+  const fr = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(lp), new THREE.LineBasicMaterial({ color: 0x38e1ff, transparent: true, opacity: 0.7 }));
+  const qg = new THREE.BufferGeometry().setFromPoints([c[0], c[1], c[2], c[0], c[2], c[3]]);
+  const quad = new THREE.Mesh(qg, new THREE.MeshBasicMaterial({ color: 0x38e1ff, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false }));
+  const bb = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(0.05, 0.085, 0.085)),
+    new THREE.LineBasicMaterial({ color: 0x7dff6b }));
+  bb.position.set(1.608, 0.665, 1.0);
+  inner.add(fr, quad, bb); hudObjs.push(fr, quad, bb); scanQuads.push(quad);
+  return inner;
+}
+const arms = {};
+for (const sgn of [1, -1]) {
+  const outer = new THREE.Group(); outer.scale.x = sgn;
+  const wrap = new THREE.Group(); wrap.position.set(0.62, 0.6, 1.0);
+  const inner = buildArm(); inner.position.set(-0.62, -0.6, -1.0);
+  wrap.add(inner); outer.add(wrap); rig.add(outer);
+  sways.push({ wrap, phase: sgn > 0 ? 0 : 1.7 }); arms[sgn] = outer;
+}
+rig.traverse(o => { if (o.isMesh && o.material && o.material.transparent) o.castShadow = false; });
+
+/* detection boxes on the tomato plants and the 1 m spacing ruler */
+for (const sx of [-1, 1]) {
+  const b = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(0.68, 1.22, 0.68)),
+    new THREE.LineBasicMaterial({ color: 0x8cff6a, transparent: true, opacity: 0.9 }));
+  b.position.set(sx * 2.5, 0.75, 1.0); scene.add(b); hudObjs.push(b);
+  const x = sx * 2.98, pts = [V(x, 0.03, 1), V(x, 0.03, 2), V(x - 0.1, 0.03, 1), V(x + 0.1, 0.03, 1), V(x - 0.1, 0.03, 2), V(x + 0.1, 0.03, 2)];
+  const rl = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0xffbe50 }));
+  scene.add(rl); hudObjs.push(rl);
+}
+
+/* ----------------------------------------------------------------- labels */
+const labelDefs = [
+  { t: 'RASPBERRY PI 5', s: 'edge controller · weatherproof enclosure', p: [0, 0.94, 1.02], dx: 0, dy: -80, al: 'c' },
+  { t: 'FFC RIBBON ×2', s: '22→15-pin · Pi 5 CSI ports → cameras', p: [0.33, 0.612, 1.006], dx: 70, dy: -58, al: 'l' },
+  { t: 'COMPACT TRACTOR', s: '45 HP class · 2WD · rear 3-point hitch', p: [0.0, 1.62, 0.31], dx: 90, dy: -12, al: 'l', cls: 'o', hud: true },
+  { t: 'CAM-L · Pi Camera 3', s: 'faces −X → tomato row (left)', p: [-1.605, 0.665, 1.0], dx: -34, dy: -90, al: 'r' },
+  { t: 'CAM-R · Pi Camera 3', s: 'faces +X → tomato row (right)', p: [1.605, 0.665, 1.0], dx: 34, dy: -90, al: 'l' },
+  { t: 'NOZZLE-L', s: 'micro-spray', p: [-1.62, 0.585, 1.0], dx: -46, dy: 62, al: 'r' },
+  { t: 'NOZZLE-R', s: 'micro-spray', p: [1.62, 0.585, 1.0], dx: 46, dy: 62, al: 'l' },
+  { t: 'PUMP-L', s: 'peristaltic', p: [-0.78, 0.55, 1.115], dx: -50, dy: 110, al: 'r' },
+  { t: 'PUMP-R', s: 'peristaltic', p: [0.78, 0.55, 1.115], dx: 50, dy: 110, al: 'l' },
+  { t: 'RESERVOIR', s: 'spray fluid', p: [0, 0.37, 1.075], dx: 0, dy: 96, al: 'c' },
+  { t: 'HITCH BAR', s: 'steel box section · 3-pt lift links', p: [1.0, 0.59, 1.0], dx: 60, dy: -100, al: 'l' },
+  { t: 'tomato_plant · 0.97', s: 'in CAM-L view', p: [-2.5, 1.35, 1.0], dx: 0, dy: -36, al: 'c', cls: 'g', hud: true },
+  { t: 'tomato_plant · 0.96', s: 'in CAM-R view', p: [2.5, 1.35, 1.0], dx: 0, dy: -36, al: 'c', cls: 'g', hud: true },
+  { t: '1.00 m', s: 'plant spacing', p: [-2.98, 0.03, 1.5], dx: -26, dy: 24, al: 'r', cls: 'o', hud: true },
+  { t: '1.00 m', s: 'plant spacing', p: [2.98, 0.03, 1.5], dx: 26, dy: 24, al: 'l', cls: 'o', hud: true },
+];
+const labelsEl = document.getElementById('labels'), svg = document.getElementById('leaders');
+const NS = 'http://www.w3.org/2000/svg';
+for (const d of labelDefs) {
+  d.el = document.createElement('div'); d.el.className = 'tag ' + (d.cls || '');
+  d.el.innerHTML = `${d.t}<small>${d.s}</small>`; labelsEl.appendChild(d.el);
+  d.ln = document.createElementNS(NS, 'line'); d.ln.setAttribute('stroke', d.cls === 'g' ? '#8cff6a' : d.cls === 'o' ? '#ffbe50' : '#38e1ff');
+  d.ln.setAttribute('stroke-width', '1'); d.ln.setAttribute('stroke-opacity', '.7'); svg.appendChild(d.ln);
+  d.dot = document.createElementNS(NS, 'circle'); d.dot.setAttribute('r', '3'); d.dot.setAttribute('fill', d.ln.getAttribute('stroke')); svg.appendChild(d.dot);
+  d.v = V(...d.p);
+}
+const state = { labels: true, hud: true, spray: true, sway: true, pov: false };
+const tmp = new THREE.Vector3();
+function updateLabels() {
+  const w = renderer.domElement.clientWidth, h = renderer.domElement.clientHeight;
+  for (const d of labelDefs) {
+    const show = state.labels && !state.pov && (!d.hud || state.hud);
+    tmp.copy(d.v).project(camera);
+    const vis = show && tmp.z < 1 && Math.abs(tmp.x) < 1.15 && Math.abs(tmp.y) < 1.15;
+    d.el.style.display = vis ? 'block' : 'none'; d.ln.style.display = d.dot.style.display = vis ? 'block' : 'none';
+    if (!vis) continue;
+    const x = (tmp.x * 0.5 + 0.5) * w, y = (-tmp.y * 0.5 + 0.5) * h;
+    d.el.style.transform = `translate(${x + d.dx}px,${y + d.dy}px) translate(${d.al === 'r' ? '-100%' : d.al === 'c' ? '-50%' : '0'},-50%)`;
+    d.ln.setAttribute('x1', x); d.ln.setAttribute('y1', y); d.ln.setAttribute('x2', x + d.dx); d.ln.setAttribute('y2', y + d.dy);
+    d.dot.setAttribute('cx', x); d.dot.setAttribute('cy', y);
+  }
+}
+
+/* --------------------------------------------------------------- UI / views */
+const views = {
+  rear:   { n: 'Rear view', p: [1.4, 1.35, 4.1], t: [0, 0.7, 0.9] },
+  detail: { n: 'Enclosure', p: [0.5, 1.0, 2.1], t: [0, 0.78, 1.0] },
+  side:   { n: '3/4 view', p: [3.8, 2.3, 4.4], t: [0.2, 0.75, 0.6] },
+  top:    { n: 'Top-down', p: [0.01, 7.0, 1.8], t: [0, 0, 0.7] },
+  camL:   { n: 'CAM-L POV', p: [-1.69, 0.67, 1.0], t: [-2.5, 0.64, 1.0], pov: 'CAM-L · facing −X' },
+  camR:   { n: 'CAM-R POV', p: [1.69, 0.67, 1.0], t: [2.5, 0.64, 1.0], pov: 'CAM-R · facing +X' },
+};
+const bar = document.getElementById('bar'), povEl = document.getElementById('pov');
+let tween = null, viewBtns = {}, zoomGoal = null;
+function goto(key) {
+  const v = views[key]; zoomGoal = null;
+  tween = { t0: performance.now(), dur: 900, p0: camera.position.clone(), t0v: controls.target.clone(), p1: V(...v.p), t1: V(...v.t), fov0: camera.fov, fov1: v.pov ? 58 : 42 };
+  state.pov = !!v.pov; povEl.style.display = v.pov ? 'block' : 'none'; povEl.textContent = v.pov || '';
+  Object.entries(viewBtns).forEach(([k, b]) => b.classList.toggle('on', k === key));
+}
+for (const k of Object.keys(views)) {
+  const b = document.createElement('button'); b.textContent = views[k].n; b.onclick = () => goto(k); bar.appendChild(b); viewBtns[k] = b;
+}
+bar.appendChild(Object.assign(document.createElement('span'), { id: 'sep' }));
+function toggle(label, key, on, fn) {
+  const l = document.createElement('label'), i = document.createElement('input'); i.type = 'checkbox'; i.checked = on;
+  i.onchange = () => { state[key] = i.checked; if (fn) fn(i.checked); };
+  l.append(i, label); bar.appendChild(l);
+}
+toggle('Spray', 'spray', true);
+toggle('Camera FOV / detection', 'hud', true, v => hudObjs.forEach(o => o.visible = v));
+toggle('Labels', 'labels', true);
+toggle('Arm sway', 'sway', true);
+toggle('Auto-orbit', 'orbit', false, v => controls.autoRotate = v);
+viewBtns.rear.classList.add('on');
+
+/* ---- smooth, controlled zoom: ~10% per mouse notch, smaller for trackpads; buttons + slider ---- */
+const ZMIN = 0.3, ZMAX = 12, LMIN = Math.log(ZMIN), LMAX = Math.log(ZMAX);
+const camDist = () => camera.position.distanceTo(controls.target);
+function setDist(d) {
+  const dir = camera.position.clone().sub(controls.target).normalize();
+  camera.position.copy(controls.target).addScaledVector(dir, THREE.MathUtils.clamp(d, ZMIN, ZMAX));
+}
+function zoomBy(f) { tween = null; zoomGoal = THREE.MathUtils.clamp((zoomGoal ?? camDist()) * f, ZMIN, ZMAX); }
+root.addEventListener('wheel', e => {
+  e.preventDefault(); e.stopPropagation();           // keep OrbitControls' own (too sensitive) wheel zoom out of it
+  let d = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1);
+  if (e.ctrlKey) d *= 3;                              // trackpad pinch
+  zoomBy(Math.exp(THREE.MathUtils.clamp(d, -80, 80) * 0.0012));
+}, { capture: true, passive: false });
+bar.appendChild(Object.assign(document.createElement('span'), { id: 'sep' }));
+const zm = Object.assign(document.createElement('button'), { textContent: '−', title: 'Zoom out' });
+const zp = Object.assign(document.createElement('button'), { textContent: '+', title: 'Zoom in' });
+const zs = Object.assign(document.createElement('input'), { type: 'range', min: 0, max: 1000, step: 1, title: 'Zoom' });
+zs.style.cssText = 'width:130px;vertical-align:middle;accent-color:#38e1ff;margin:0 4px;pointer-events:auto';
+let sliding = false;
+zm.onclick = () => zoomBy(1.3); zp.onclick = () => zoomBy(1 / 1.3);
+zs.onpointerdown = () => { sliding = true; }; zs.onpointerup = zs.onchange = () => { sliding = false; };
+zs.oninput = () => { tween = null; zoomGoal = null; setDist(Math.exp(LMIN + (zs.value / 1000) * (LMAX - LMIN))); };
+const zwrap = document.createElement('span'); zwrap.style.cssText = 'display:inline-flex;align-items:center;gap:2px';
+zwrap.append(zm, zs, zp); bar.appendChild(zwrap);
+
+/* ------------------------------------------------------------------- loop */
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize); resize();
+
+const clock = new THREE.Clock(); let time = 0, frames = 0, fpsT = 0, fps = 0;
+const statsEl = document.getElementById('stats');
+const ease = x => x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+function frame() {
+  requestAnimationFrame(frame);
+  const dt = Math.min(clock.getDelta(), 0.05); time += dt;
+  if (tween) {
+    const k = Math.min((performance.now() - tween.t0) / tween.dur, 1), e = ease(k);
+    camera.position.lerpVectors(tween.p0, tween.p1, e); controls.target.lerpVectors(tween.t0v, tween.t1, e);
+    camera.fov = tween.fov0 + (tween.fov1 - tween.fov0) * e; camera.updateProjectionMatrix();
+    if (k >= 1) tween = null;
+  }
+  if (zoomGoal !== null) {
+    const cur = camDist(), nxt = cur + (zoomGoal - cur) * (1 - Math.exp(-dt * 10));
+    setDist(nxt); if (Math.abs(zoomGoal - nxt) < 0.002) zoomGoal = null;
+  }
+  if (!sliding) zs.value = Math.round((Math.log(THREE.MathUtils.clamp(camDist(), ZMIN, ZMAX)) - LMIN) / (LMAX - LMIN) * 1000);
+  for (const p of pumps) p.rotation.z -= dt * (state.spray ? 5 : 0.6);
+  for (const s of sways) s.wrap.rotation.z = state.sway ? Math.sin(time * 0.9 + s.phase) * 0.022 : 0;
+  for (const p of pulses) { p.mesh.visible = state.spray; if (state.spray) p.mesh.position.copy(p.curve.getPoint((time * 0.35 + p.off) % 1)); }
+  for (const sp of sprays) {
+    if (!state.spray) { if (!sp.parked) { for (let i = 0; i < sp.N; i++) sp.pos[i * 3 + 1] = -100; sp.geo.attributes.position.needsUpdate = true; sp.parked = true; } continue; }
+    if (sp.parked) { for (let i = 0; i < sp.N; i++) sp.respawn(i, true); sp.parked = false; }
+    for (let i = 0; i < sp.N; i++) {
+      sp.age[i] += dt;
+      if (sp.age[i] > sp.life[i]) sp.respawn(i, false);
+      else { sp.vel[i * 3 + 1] -= 1.1 * dt; sp.pos[i * 3] += sp.vel[i * 3] * dt; sp.pos[i * 3 + 1] += sp.vel[i * 3 + 1] * dt; sp.pos[i * 3 + 2] += sp.vel[i * 3 + 2] * dt; }
+    }
+    sp.geo.attributes.position.needsUpdate = true;
+  }
+  for (const q of scanQuads) q.material.opacity = 0.06 + 0.05 * (0.5 + 0.5 * Math.sin(time * 3));
+  ledG.material.emissiveIntensity = 1 + Math.sin(time * 9) * 1; ledR.material.emissiveIntensity = Math.sin(time * 1.3) > 0.2 ? 2 : 0.1;
+  controls.update(); renderer.render(scene, camera); updateLabels();
+  frames++; fpsT += dt;
+  if (fpsT > 0.5) {
+    fps = Math.round(frames / fpsT); frames = 0; fpsT = 0;
+    const dist = camera.position.distanceTo(controls.target);
+    statsEl.innerHTML = `FPS <i>${fps}</i><br>FOV <i>${Math.round(camera.fov)}°</i> · DIST <i>${dist.toFixed(2)} m</i><br>ROW PITCH <i>1.00 m</i> · BED CTR <i>±2.50 m</i><br>SIM · NOT A PHOTOGRAPH`;
+  }
+}
+frame();
+</script>
+</body>
+</html>
